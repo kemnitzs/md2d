@@ -8,7 +8,7 @@ option( USE_BACKWARD "use backward cpp" OFF )
 
 
 #subdirectories to use
-#add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backward_cpp)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backward_cpp)
 
 SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -fopenmp" )
 
@@ -30,9 +30,11 @@ SET( CMAKE_CXX_STANDARD 14 )
 SET( CMAKE_EXPORT_COMPILE_COMMANDS on )
 
 
-ADD_EXECUTABLE(bin_md2d main.cpp)
 if ( ${USE_BACKWARD} )
-  #  add_backward(bin_md2d)
+    ADD_EXECUTABLE(bin_md2d main.cpp ${BACKWARD_ENABLE})
+    add_backward(bin_md2d)
+else()
+  ADD_EXECUTABLE(bin_md2d main.cpp )
 endif()
 
 #TARGET_INCLUDE_DIRECTORIES( bin_md2d )
