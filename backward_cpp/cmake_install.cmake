@@ -1,4 +1,4 @@
-# Install script for directory: /home/kemnitzs/dev/md2d/backward_cpp
+# Install script for directory: /home/bandelog47/md2d/backward_cpp
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -33,10 +33,10 @@ if(NOT DEFINED CMAKE_INSTALL_SO_NO_EXE)
 endif()
 
 if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include" TYPE FILE FILES "/home/kemnitzs/dev/md2d/backward_cpp/backward.hpp")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include" TYPE FILE FILES "/home/bandelog47/md2d/backward_cpp/backward.hpp")
 endif()
 
 if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib64/backward" TYPE FILE FILES "/home/kemnitzs/dev/md2d/backward_cpp/BackwardConfig.cmake")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib64/backward" TYPE FILE FILES "/home/bandelog47/md2d/backward_cpp/BackwardConfig.cmake")
 endif()
 

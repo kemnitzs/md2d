@@ -5,9 +5,9 @@
 #include <fstream>
 #include <string>
 
-constexpr int domainsize_x = 1080;
-constexpr int domainsize_y = 720;
-constexpr double time_step = 0.01;
+constexpr int domainsize_x = 50;
+constexpr int domainsize_y = 50;
+constexpr double time_step = 0.0001;
 
 struct Particle {
   double x;
@@ -88,10 +88,15 @@ struct Grid {
   }
 
   double get_force(double distance){
-    double alpha = 5;
+    // Lennard-Jones-Potential
+    double alpha = 0.1;
     double beta = alpha * pow(0.5,1.0/1.6);
     double result =  12*pow(beta,12)/pow(distance,13) - 6*pow(beta, 6)/pow(distance,7);
-    if ( result > 10 ) result = 10;
+    if (result > 10){
+      result = 10;
+    } else if (result < -10){
+      result = -10;
+    }
     return result; 
     //return 0;
   }
@@ -101,8 +106,8 @@ struct Grid {
     double force = get_force(distance);
     auto direction = get_direction(particle1,particle2); 
     auto norm_direction = normalize( direction );
-    particle1.vx += force * norm_direction[0] * time_step;  
-    particle2.vy += force * norm_direction[1] * time_step;
+    particle1.vx += - force * norm_direction[0] * time_step;  
+    particle2.vy += - force * norm_direction[1] * time_step;
   }
   
   void calculate_v_with_all( Particle& particle1, int x1, int y1, int p1){
@@ -144,23 +149,34 @@ struct Grid {
       center_of_force[1]-p.y
     };
     auto len = length( direction );
-    p.vx += direction[0] * time_step;
-    p.vy += direction[1] * time_step;
+    // Lennard-Jones-Potential
+    double alpha = domainsize_x/3.0;
+    double beta = alpha * pow(0.5,1.0/1.6);
+    double force =  12*pow(beta,12)/pow(len,13) - 6*pow(beta, 6)/pow(len,7);
+    if (force > 10){
+      force =  10;
+    } else if (force < -10){
+      force = -10;
+    }
+    p.vx +=  -10 * force * direction[0] * time_step;
+    p.vy +=  -10 * force * direction[1] * time_step;
+    p.vx *=0.999;
+    p.vy *=0.999;
   }
 
   void calculate_new_v(){
-    std::cout << "entering " << __FUNCTION__ << std::endl;
+    //std::cout << "entering " << __FUNCTION__ << std::endl;
     #pragma omp parallel for collapse(2) schedule(static,1) 
     for (int y = 0; y < domainsize_y; ++y){
       for (int x = 0; x < domainsize_x; ++x){
         for (int p = 0; p < cells[y][x].particles.size(); ++p){
 	  //calculate_v_with_all( cells[y][x].particles[p], x,y,p); 
-	  calculate_v_with_area( cells[y][x].particles[p], x,y,p, 21 );
+	  calculate_v_with_area( cells[y][x].particles[p], x,y,p, 3 );
 	  calculate_background_force( cells[y][x].particles[p] );
         } 
       }
     }
-    std::cout << "leaving " << __FUNCTION__ << std::endl;
+    //std::cout << "leaving " << __FUNCTION__ << std::endl;
   }
 
   void print( std::ostream& out ){
@@ -213,7 +229,7 @@ int main(int argc, char** argv){
 
   // generate 4 GB of particle data in the system
   //int number_of_particles = 4l*1024*1024*1024 / sizeof(Particle);
-  int number_of_particles = 10*1024*1024 / sizeof(Particle);
+  int number_of_particles = 50*50*1; //*1024 / sizeof(Particle);
 
   Grid grid;
 
@@ -238,17 +254,20 @@ int main(int argc, char** argv){
   std::cout << "size of the grid in memory " << to_MB(grid.get_size_in_memory()) << std::endl;
   std::cout << "done generating particles" << std::endl;
 
-  for (int i = 0; i < 1000; ++i){
+  for (int i = 0; i < 24000; ++i){
     // calculate new v for all particles 
     grid.calculate_new_v();
 
     // calculate new pos for all particles
     grid.calculate_new_positions();
     grid.rebalance();
-    char name[100];
-    sprintf(name, "%08d", i);
-    std::ofstream out(std::string("mat_")+ name + ".dat");
-    grid.print(out );
+    if (i%2000==0){
+      std::cout << i << std::endl;
+      char name[100];
+      sprintf(name, "%08d", i);
+      std::ofstream out(std::string("mat_")+ name + ".dat");
+      grid.print(out );
+    }
   }
    
   return 0;
