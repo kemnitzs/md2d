@@ -9,9 +9,9 @@
 
 namespace mpi = boost::mpi;
 
-constexpr int domainsize_x = 1024;
-constexpr int domainsize_y = 512;
-constexpr double time_step = 0.01;
+constexpr int domainsize_x = 50;
+constexpr int domainsize_y = 50;
+constexpr double time_step = 0.001;
 
 struct Particle {
   double x;
@@ -95,10 +95,15 @@ struct Grid {
   }
 
   double get_force(double distance){
-    double alpha = 5;
+    // Lennard-Jones-Potential
+    double alpha = 0.1;
     double beta = alpha * pow(0.5,1.0/1.6);
     double result =  12*pow(beta,12)/pow(distance,13) - 6*pow(beta, 6)/pow(distance,7);
-    if ( result > 10 ) result = 10;
+    if (result > 10){
+      result = 10;
+    } else if (result < -10){
+      result = -10;
+    }
     return result; 
     //return 0;
   }
@@ -108,8 +113,8 @@ struct Grid {
     double force = get_force(distance);
     auto direction = get_direction(particle1,particle2); 
     auto norm_direction = normalize( direction );
-    particle1.vx += force * norm_direction[0] * time_step;  
-    particle2.vy += force * norm_direction[1] * time_step;
+    particle1.vx += - force * norm_direction[0] * time_step;  
+    particle2.vy += - force * norm_direction[1] * time_step;
   }
   
   void calculate_v_with_all( Particle& particle1, int x1, int y1, int p1){
@@ -151,26 +156,39 @@ struct Grid {
       center_of_force[1]-p.y
     };
     auto len = length( direction );
-    p.vx += direction[0] * time_step;
-    p.vy += direction[1] * time_step;
+    // Lennard-Jones-Potential
+    double alpha = domainsize_y/3.0;
+    double beta = alpha * pow(0.5,1.0/1.6);
+    double force =  12*pow(beta,12)/pow(len,13) - 6*pow(beta, 6)/pow(len,7);
+    if (force > 10){
+      force =  10;
+    } else if (force < -10){
+      force = -10;
+    }
+    p.vx +=  -10 * force * direction[0] * time_step;
+    p.vy +=  -10 * force * direction[1] * time_step;
+    p.vx *=0.999;
+    p.vy *=0.999;
   }
 
   void calculate_new_v(){
-    std::cout << "entering " << __FUNCTION__ << std::endl;
+    //std::cout << "entering " << __FUNCTION__ << std::endl;
     #pragma omp parallel for collapse(2) schedule(static,1) 
     for (int y = 0; y < domainsize_y; ++y){
       for (int x = 0; x < domainsize_x; ++x){
         for (int p = 0; p < cells[y][x].particles.size(); ++p){
 	  //calculate_v_with_all( cells[y][x].particles[p], x,y,p); 
-	  calculate_v_with_area( cells[y][x].particles[p], x,y,p, 21 );
+	  calculate_v_with_area( cells[y][x].particles[p], x,y,p, 3 );
 	  calculate_background_force( cells[y][x].particles[p] );
         } 
       }
     }
-    std::cout << "leaving " << __FUNCTION__ << std::endl;
+    //std::cout << "leaving " << __FUNCTION__ << std::endl;
   }
 
   void print( std::ostream& out ){
+
+
     for (int y = 0; y < domainsize_y; ++y){
       for (int x = 0; x < domainsize_x; ++x){
         out << cells[y][x].particles.size() << " ";
@@ -216,18 +234,24 @@ struct Grid {
     }
   }
 
-  void exchange_particles( mpi::communicator& world ){
+  void exchange_particles( mpi::communicator& world, int overwrite_rank = -1 ){
 
     std::vector<mpi::request> send_requests;
     std::vector<std::vector<Particle>> particles_for_ranks;
     particles_for_ranks.resize( world.size() );
+
+
 
     for (int rank = 0; rank < world.size(); ++rank){
       if ( rank == world.rank() ) continue;
       std::vector<Particle>& particles_for_rank = particles_for_ranks[rank];
       for( auto& row : cells ){
         for( auto& cell : row ){
-          if ( cell.owning_rank == rank ) {
+	  int owning_rank = cell.owning_rank;
+	  if ( overwrite_rank != -1 ) {
+	    owning_rank = overwrite_rank;
+	  }
+          if ( owning_rank == rank ) {
 	    particles_for_rank.insert( 
 		particles_for_rank.end(), 
 		cell.particles.begin(), 
@@ -288,7 +312,7 @@ int main(int argc, char** argv){
 
   // generate 4 GB of particle data in the system
   //int number_of_particles = 4l*1024*1024*1024 / sizeof(Particle);
-  int number_of_particles = 10*1024*1024 / sizeof(Particle);
+  int number_of_particles = 50*50*1; //*1024 / sizeof(Particle);
 
   Grid grid;
   grid.calculate_owners(world);
@@ -327,20 +351,23 @@ int main(int argc, char** argv){
     std::ofstream out(std::string("particles" + std::to_string(world.rank()) + ".dat"));
     grid.print(out);
   }
-  
-  if (1){
-    for (int i = 0; i < 1000; ++i){
-      // calculate new v for all particles 
-      grid.calculate_new_v();
 
-      // calculate new pos for all particles
-      grid.calculate_new_positions();
-      grid.rebalance();
-      grid.exchange_particles(world);
+  for (int i = 0; i < 24000; ++i){
+    // calculate new v for all particles 
+    grid.calculate_new_v();
+
+    // calculate new pos for all particles
+    grid.calculate_new_positions();
+    grid.rebalance();
+    if (i%2000==0){
+      std::cout << i << std::endl;
       char name[100];
       sprintf(name, "%08d", i);
-      std::ofstream out(std::string("mat_")+ name + "_" + std::to_string(world.rank()) + ".dat");
-      grid.print(out );
+      std::ofstream out(std::string("mat_")+ name + ".dat");
+      grid.exchange_particles(world, 0);
+      if ( world.rank() == 0 ) {
+	grid.print(out );
+      }
     }
   }
    

@@ -4,7 +4,7 @@ PROJECT(md2d)
 SET( CMAKE_BUILD_TYPE RELEASE )
 option( USE_ADDRESS_SANITIZER "use address sanitizer of gcc/clang" OFF )
 option( USE_LIBRARY_ACCESS_CHECK "use std++ build in access detection for containers" OFF )
-option( USE_BACKWARD "use backward cpp" ON )
+option( USE_BACKWARD "use backward cpp" OFF )
 
 FIND_PACKAGE( Boost COMPONENTS mpi serialization REQUIRED)
 FIND_PACKAGE( MPI REQUIRED )
@@ -32,9 +32,11 @@ SET( CMAKE_CXX_STANDARD 14 )
 SET( CMAKE_EXPORT_COMPILE_COMMANDS on )
 
 
-ADD_EXECUTABLE(bin_md2d main.cpp ${BACKWARD_ENABLE})
 if ( ${USE_BACKWARD} )
-  add_backward(bin_md2d)
+    ADD_EXECUTABLE(bin_md2d main.cpp ${BACKWARD_ENABLE})
+    add_backward(bin_md2d)
+else()
+  ADD_EXECUTABLE(bin_md2d main.cpp )
 endif()
 
 #TARGET_INCLUDE_DIRECTORIES( bin_md2d )
