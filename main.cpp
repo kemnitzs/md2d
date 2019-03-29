@@ -4,9 +4,13 @@
 #include <random>
 #include <fstream>
 #include <string>
+#include <boost/mpi.hpp>
+#include <boost/serialization/vector.hpp>
 
-constexpr int domainsize_x = 1080;
-constexpr int domainsize_y = 720;
+namespace mpi = boost::mpi;
+
+constexpr int domainsize_x = 1024;
+constexpr int domainsize_y = 512;
 constexpr double time_step = 0.01;
 
 struct Particle {
@@ -16,6 +20,8 @@ struct Particle {
   double vy;
 };
 
+BOOST_IS_BITWISE_SERIALIZABLE(Particle)
+
 struct Cell {
   std::vector<Particle> particles;
   void store_particle( Particle& p ){
@@ -24,6 +30,7 @@ struct Cell {
   size_t get_size_in_memory() {
     return particles.capacity() * sizeof(Particle);
   }
+  int owning_rank;
 };
 
 struct Grid {
@@ -171,6 +178,14 @@ struct Grid {
       out << std::endl;
     }
   }
+  void print_owners( std::ostream& out ){
+    for (int y = 0; y < domainsize_y; ++y){
+      for (int x = 0; x < domainsize_x; ++x){
+        out << cells[y][x].owning_rank << " ";
+      }
+      out << std::endl;
+    }
+  }
 
   void calculate_new_positions(){
     for (int y = 0; y < cells.size(); ++y){
@@ -201,6 +216,62 @@ struct Grid {
     }
   }
 
+  void exchange_particles( mpi::communicator& world ){
+
+    std::vector<mpi::request> send_requests;
+    std::vector<std::vector<Particle>> particles_for_ranks;
+    particles_for_ranks.resize( world.size() );
+
+    for (int rank = 0; rank < world.size(); ++rank){
+      if ( rank == world.rank() ) continue;
+      std::vector<Particle>& particles_for_rank = particles_for_ranks[rank];
+      for( auto& row : cells ){
+        for( auto& cell : row ){
+          if ( cell.owning_rank == rank ) {
+	    particles_for_rank.insert( 
+		particles_for_rank.end(), 
+		cell.particles.begin(), 
+		cell.particles.end() 
+	    );
+	    cell.particles.resize(0);
+	  }
+        }
+        
+      }
+      auto request = world.isend( rank, 0, particles_for_rank );
+      send_requests.push_back( request );
+    }
+
+    std::vector<mpi::request> recv_requests;
+    for (int rank = 0; rank < world.size(); ++rank){
+      if ( rank == world.rank() ) continue;
+      std::vector<Particle> particles_for_this_rank;
+      world.recv( rank, 0, particles_for_this_rank );
+      for( auto& p : particles_for_this_rank ){
+        store_particle( p );
+      }
+      
+    }
+
+    mpi::wait_all( send_requests.begin(), send_requests.end());
+
+  }
+
+  void calculate_owners( mpi::communicator& world ){
+    int sadim = sqrt( world.size() );
+    int xdim = domainsize_x / sadim;
+    int ydim = domainsize_y / sadim;
+
+    for (int y = 0; y < cells.size(); ++y){
+      for( int x = 0 ; x < cells[y].size(); ++x){
+	int xaddr = x / xdim;
+	int yaddr = y / ydim;
+	int rank = xaddr + yaddr * sadim;
+	cells[y][x].owning_rank = rank;
+      }
+    }
+  }
+
   std::array<double,2> center_of_force = { domainsize_x / 2 , domainsize_y /2 };
 
 };
@@ -211,44 +282,66 @@ auto to_MB( size_t size_in_byte){
 
 int main(int argc, char** argv){
 
+  mpi::environment env;
+  mpi::communicator world;
+
+
   // generate 4 GB of particle data in the system
   //int number_of_particles = 4l*1024*1024*1024 / sizeof(Particle);
   int number_of_particles = 10*1024*1024 / sizeof(Particle);
 
   Grid grid;
+  grid.calculate_owners(world);
+  if ( world.rank() == 0 ) {
+    std::ofstream out(std::string("cdc.dat"));
+    grid.print_owners(out );
+    out.close();
+  }
+
 
   std::cout << "number_of_particles " << number_of_particles << std::endl;
   std::cout << "size of the grid in memory " << to_MB(grid.get_size_in_memory()) << std::endl;
 
-  std::mt19937 gen;
-  std::uniform_real_distribution<> dis_x(0, domainsize_x);
-  std::uniform_real_distribution<> dis_y(0, domainsize_y);
-  std::uniform_real_distribution<> dis_vx(-1,1);
-  std::uniform_real_distribution<> dis_vy(-1,1);
+  if ( world.rank() == 0 ) {
+    std::mt19937 gen;
+    std::uniform_real_distribution<> dis_x(0, domainsize_x);
+    std::uniform_real_distribution<> dis_y(0, domainsize_y);
+    std::uniform_real_distribution<> dis_vx(-1,1);
+    std::uniform_real_distribution<> dis_vy(-1,1);
 
-  for (int i = 0; i < number_of_particles; ++i){
-    Particle p;
-    p.x = dis_x(gen);
-    p.y = dis_y(gen);
-    p.vx = dis_vx(gen);
-    p.vx = dis_vy(gen);
-    grid.store_particle( p ); 
+    for (int i = 0; i < number_of_particles; ++i){
+      Particle p;
+      p.x = dis_x(gen);
+      p.y = dis_y(gen);
+      p.vx = dis_vx(gen);
+      p.vx = dis_vy(gen);
+      grid.store_particle( p ); 
+    }
+
   }
-
   std::cout << "size of the grid in memory " << to_MB(grid.get_size_in_memory()) << std::endl;
   std::cout << "done generating particles" << std::endl;
 
-  for (int i = 0; i < 1000; ++i){
-    // calculate new v for all particles 
-    grid.calculate_new_v();
+  grid.exchange_particles(world);
+  {
+    std::ofstream out(std::string("particles" + std::to_string(world.rank()) + ".dat"));
+    grid.print(out);
+  }
+  
+  if (1){
+    for (int i = 0; i < 1000; ++i){
+      // calculate new v for all particles 
+      grid.calculate_new_v();
 
-    // calculate new pos for all particles
-    grid.calculate_new_positions();
-    grid.rebalance();
-    char name[100];
-    sprintf(name, "%08d", i);
-    std::ofstream out(std::string("mat_")+ name + ".dat");
-    grid.print(out );
+      // calculate new pos for all particles
+      grid.calculate_new_positions();
+      grid.rebalance();
+      grid.exchange_particles(world);
+      char name[100];
+      sprintf(name, "%08d", i);
+      std::ofstream out(std::string("mat_")+ name + "_" + std::to_string(world.rank()) + ".dat");
+      grid.print(out );
+    }
   }
    
   return 0;

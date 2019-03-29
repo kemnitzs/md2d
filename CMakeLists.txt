@@ -6,6 +6,8 @@ option( USE_ADDRESS_SANITIZER "use address sanitizer of gcc/clang" OFF )
 option( USE_LIBRARY_ACCESS_CHECK "use std++ build in access detection for containers" OFF )
 option( USE_BACKWARD "use backward cpp" ON )
 
+FIND_PACKAGE( Boost COMPONENTS mpi serialization REQUIRED)
+FIND_PACKAGE( MPI REQUIRED )
 
 #subdirectories to use
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backward_cpp)
@@ -37,3 +39,6 @@ endif()
 
 #TARGET_INCLUDE_DIRECTORIES( bin_md2d )
 #TARGET_LINK_LIBRARIES( bin_md2d )
+TARGET_INCLUDE_DIRECTORIES( bin_md2d PRIVATE ${Boost_INCLUDE_DIRS} ${MPI_INCLUDE_PATH})
+TARGET_LINK_LIBRARIES( bin_md2d ${Boost_LIBRARIES} ${MPI_LIBRARIES})
+
